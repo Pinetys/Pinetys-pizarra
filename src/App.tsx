@@ -2,6 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import CourtBoard from './components/CourtBoard';
 import PlayStepsTimeline from './components/PlayStepsTimeline';
 import PlayLibrary from './components/PlayLibrary';
+import {
+  subscribeToPlays,
+  savePlayToCloud,
+  deletePlayFromCloud,
+  syncLocalPlaysToCloud,
+} from './lib/firebase';
 import { Play, PlayStep, PlayerState, DrawingPath, PlayerRole } from './types';
 import { defaultHalfCourtPlayers, defaultFullCourtPlayers } from './utils';
 
@@ -265,6 +271,36 @@ export default function App() {
     localStorage.setItem('basket_tactical_plays', JSON.stringify(plays));
   }, [plays]);
 
+  const [cloudSyncStatus, setCloudSyncStatus] = useState<'synced' | 'syncing' | 'error'>('syncing');
+  const isInitialCloudLoadRef = useRef<boolean>(true);
+
+  // Real-time Firestore synchronization across PC, Mobile, Render.com, etc.
+  useEffect(() => {
+    setCloudSyncStatus('syncing');
+    const unsubscribe = subscribeToPlays(
+      (cloudPlays) => {
+        setCloudSyncStatus('synced');
+        if (cloudPlays && cloudPlays.length > 0) {
+          setPlays(cloudPlays);
+          setActivePlayId((currentActive) => {
+            const exists = cloudPlays.some((p) => p.id === currentActive);
+            return exists ? currentActive : cloudPlays[0].id;
+          });
+        } else if (isInitialCloudLoadRef.current) {
+          // If Firestore is empty on initial run, upload default local plays
+          syncLocalPlaysToCloud(plays).catch((err) => console.error('Cloud initial sync error:', err));
+        }
+        isInitialCloudLoadRef.current = false;
+      },
+      (err) => {
+        console.error('Firestore connection error:', err);
+        setCloudSyncStatus('error');
+      }
+    );
+
+    return () => unsubscribe();
+  }, []);
+
   // Check for shared plays or single shared play in URL query params on mount
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -331,12 +367,13 @@ export default function App() {
   }, []);
 
   // Update overall active play metadata (direct real-time saves)
-  const handleUpdatePlayMetadata = (field: 'name' | 'description', value: string) => {
-    if (activePlay.isSaved) return;
+  const handleUpdatePlayMetadata = (field: 'name' | 'description' | 'category', value: string) => {
     setPlays((prev) =>
       prev.map((p) => {
         if (p.id === activePlayId) {
-          return { ...p, [field]: value };
+          const updated = { ...p, [field]: value };
+          savePlayToCloud(updated).catch((err) => console.error('Cloud auto-save error:', err));
+          return updated;
         }
         return p;
       })
@@ -344,13 +381,11 @@ export default function App() {
   };
 
   const handleClearDescription = () => {
-    if (activePlay.isSaved) return;
     setIsDescriptionCustom((prev) => ({ ...prev, [activePlayId]: true }));
     handleUpdatePlayMetadata('description', '');
   };
 
   const handleRegenerateTranscription = () => {
-    if (activePlay.isSaved) return;
     setIsDescriptionCustom((prev) => ({ ...prev, [activePlayId]: false }));
     const autoText = generateTacticalTranscription(activePlay, playerNames);
     handleUpdatePlayMetadata('description', autoText || '');
@@ -474,7 +509,6 @@ export default function App() {
   };
 
   const handleClearAnimationSteps = () => {
-    if (activePlay.isSaved) return;
     triggerConfirm({
       title: '🧹 ¿Borrar todos los fotogramas?',
       message: 'Esta acción eliminará todos los pasos tácticos creados, manteniendo únicamente la posición inicial de salida para esta jugada. No podrás deshacer este cambio.',
@@ -485,12 +519,14 @@ export default function App() {
         setPlays((prev) =>
           prev.map((p) => {
             if (p.id === activePlayId) {
-              return {
+              const updated = {
                 ...p,
                 description: '', // Clear old step transcript descriptions
                 steps: [JSON.parse(JSON.stringify(p.steps[0]))], // Only retain core starting frame (fase 1) safely
                 drawings: [], // Clear motions/trails
               };
+              savePlayToCloud(updated).catch((err) => console.error(err));
+              return updated;
             }
             return p;
           })
@@ -623,7 +659,6 @@ export default function App() {
 
   // Add step duplicating current players state configuration
   const handleAddStep = () => {
-    if (activePlay.isSaved) return;
     setIsAnimating(false);
     const currentStep = activePlay.steps[currentStepIndex];
 
@@ -636,7 +671,9 @@ export default function App() {
     setPlays((prev) =>
       prev.map((p) => {
         if (p.id === activePlayId) {
-          return { ...p, steps: [...p.steps, newStep] };
+          const updated = { ...p, steps: [...p.steps, newStep] };
+          savePlayToCloud(updated).catch((err) => console.error(err));
+          return updated;
         }
         return p;
       })
@@ -652,7 +689,6 @@ export default function App() {
 
   // Duplicate specified step index
   const handleDuplicateStep = (index: number) => {
-    if (activePlay.isSaved) return;
     setIsAnimating(false);
     const stepToCopy = activePlay.steps[index];
 
@@ -667,7 +703,9 @@ export default function App() {
         if (p.id === activePlayId) {
           const updatedSteps = [...p.steps];
           updatedSteps.splice(index + 1, 0, duplicated);
-          return { ...p, steps: updatedSteps };
+          const updated = { ...p, steps: updatedSteps };
+          savePlayToCloud(updated).catch((err) => console.error(err));
+          return updated;
         }
         return p;
       })
@@ -676,7 +714,6 @@ export default function App() {
 
   // Delete specified step index
   const handleDeleteStep = (index: number) => {
-    if (activePlay.isSaved) return;
     setIsAnimating(false);
     if (activePlay.steps.length <= 1) return;
 
@@ -692,7 +729,9 @@ export default function App() {
           prev.map((p) => {
             if (p.id === activePlayId) {
               const updatedSteps = p.steps.filter((_, idx) => idx !== index);
-              return { ...p, steps: updatedSteps };
+              const updated = { ...p, steps: updatedSteps };
+              savePlayToCloud(updated).catch((err) => console.error(err));
+              return updated;
             }
             return p;
           })
@@ -724,7 +763,6 @@ export default function App() {
 
   // Update notes
   const handleUpdateStepDescription = (index: number, desc: string) => {
-    if (activePlay.isSaved) return;
     setPlays((prev) =>
       prev.map((p) => {
         if (p.id === activePlayId) {
@@ -738,7 +776,6 @@ export default function App() {
 
   // Update speed duration
   const handleUpdateStepDuration = (index: number, duration: number) => {
-    if (activePlay.isSaved) return;
     setPlays((prev) =>
       prev.map((p) => {
         if (p.id === activePlayId) {
@@ -752,7 +789,6 @@ export default function App() {
 
   // Move players state in the editor
   const handleUpdatePlayers = (updatedPlayers: PlayerState[]) => {
-    if (activePlay.isSaved) return;
     if (isAnimating) return;
 
     setPlays((prev) =>
@@ -865,6 +901,7 @@ export default function App() {
       name: '📋 Mi nueva jugada',
       description: 'Crea tu estrategia arrastrando los jugadores y definiendo los pasos tácticos.',
       courtType: activePlay.courtType,
+      category: activePlay.category || 'juego',
       steps: [
         {
           description: 'Paso 1: Posición de salida',
@@ -878,13 +915,11 @@ export default function App() {
         }
       ],
       drawings: [],
+      isSaved: true,
     };
 
-    setPlays((prev) => {
-      // Keep any saved library plays, filter out unsaved drafts
-      const cleanPrev = prev.filter((p) => p.isSaved);
-      return [...cleanPrev, newPlay];
-    });
+    setPlays((prev) => [...prev, newPlay]);
+    savePlayToCloud(newPlay).catch((err) => console.error(err));
 
     setActivePlayId(newPlayId);
     setCurrentStepIndex(1);
@@ -894,12 +929,13 @@ export default function App() {
 
   // Clipboard draw operations - Upsert drawing with matching ID or append if new
   const handleAddDrawing = (drawing: DrawingPath) => {
-    if (activePlay.isSaved) return;
     setPlays((prev) =>
       prev.map((p) => {
         if (p.id === activePlayId) {
           const filterExisting = p.drawings.filter((d) => d.id !== drawing.id);
-          return { ...p, drawings: [...filterExisting, drawing] };
+          const updated = { ...p, drawings: [...filterExisting, drawing] };
+          savePlayToCloud(updated).catch((err) => console.error(err));
+          return updated;
         }
         return p;
       })
@@ -907,7 +943,6 @@ export default function App() {
   };
 
   const handleDeleteDrawing = (id: string) => {
-    if (activePlay.isSaved) return;
     // If we're playing the animation, cause a brief pause when deleting a drawing
     if (isAnimating) {
       isPausedForDeleteRef.current = true;
@@ -963,11 +998,13 @@ export default function App() {
             }
           }
 
-          return { 
+          const updated = { 
             ...p, 
             steps: updatedSteps, 
             drawings: p.drawings.filter((d) => d.id !== id) 
           };
+          savePlayToCloud(updated).catch((err) => console.error(err));
+          return updated;
         }
         return p;
       })
@@ -975,7 +1012,6 @@ export default function App() {
   };
 
   const handleClearAllDrawings = () => {
-    if (activePlay.isSaved) return;
     setPlays((prev) =>
       prev.map((p) => {
         if (p.id === activePlayId) {
@@ -994,7 +1030,9 @@ export default function App() {
               };
             }
           }
-          return { ...p, steps: updatedSteps, drawings: [] };
+          const updated = { ...p, steps: updatedSteps, drawings: [] };
+          savePlayToCloud(updated).catch((err) => console.error(err));
+          return updated;
         }
         return p;
       })
@@ -1040,13 +1078,16 @@ export default function App() {
         const newPlay: Play = {
           ...imported,
           id: `imported-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+          isSaved: true,
         };
 
         setPlays((prev) => [...prev, newPlay]);
         setActivePlayId(newPlay.id);
         setCurrentStepIndex(0);
         
-        setShareNotification("✅ ¡Jugada importada correctamente!");
+        savePlayToCloud(newPlay).catch((err) => console.error(err));
+
+        setShareNotification("✅ ¡Jugada importada y guardada en la Nube!");
         setTimeout(() => setShareNotification(null), 3500);
       } catch (err: any) {
         alert(`Error al importar el archivo: ${err.message || err}`);
@@ -1078,6 +1119,14 @@ export default function App() {
     setActivePlayId(playToSave.id);
     setFractionalIndex(0.0);
     setCurrentStepIndex(0);
+
+    // Persist to Cloud Firestore
+    savePlayToCloud(playToSave).then(() => {
+      setShareNotification('☁️ ¡Jugada guardada en la Nube! Disponible en todos tus dispositivos.');
+      setTimeout(() => setShareNotification(null), 4000);
+    }).catch((err) => {
+      console.error('Error guardando en la Nube:', err);
+    });
   };
 
   // Delete play template
@@ -1087,13 +1136,17 @@ export default function App() {
 
     triggerConfirm({
       title: '🗑️ ¿Eliminar esta jugada de la biblioteca?',
-      message: `Fórmula de seguridad: ¿Estás seguro de que deseas eliminar permanentemente la jugada "${playName}" de tu biblioteca privada? Esta acción es irreversible y se perderán todos los fotogramas y dibujos asociados.`,
+      message: `Fórmula de seguridad: ¿Estás seguro de que deseas eliminar permanentemente la jugada "${playName}" de tu biblioteca? Se borra en todos tus dispositivos sincronizados.`,
       confirmText: 'Sí, eliminar de biblioteca',
       cancelText: 'Conservar jugada',
       isDanger: true,
       onConfirm: () => {
         setIsAnimating(false);
         const updated = plays.filter((p) => p.id !== id);
+
+        // Delete from Cloud
+        deletePlayFromCloud(id).catch((err) => console.error('Error eliminando en Nube:', err));
+
         if (updated.length === 0) {
           const defaultBlankPlay: Play = {
             id: `custom-play-${Date.now()}`,
@@ -1108,11 +1161,13 @@ export default function App() {
               },
             ],
             drawings: [],
+            isSaved: true,
           };
           setPlays([defaultBlankPlay]);
           setActivePlayId(defaultBlankPlay.id);
           setFractionalIndex(0.0);
           setCurrentStepIndex(0);
+          savePlayToCloud(defaultBlankPlay).catch((err) => console.error(err));
         } else {
           setPlays(updated);
           if (activePlayId === id) {
@@ -1121,8 +1176,36 @@ export default function App() {
             setCurrentStepIndex(0);
           }
         }
-      }
+      },
     });
+  };
+
+  // Update existing play details (name, description, category)
+  const handleUpdatePlayDetails = (
+    playId: string,
+    name: string,
+    description: string,
+    category: 'banda' | 'fondo' | 'juego'
+  ) => {
+    setPlays((prev) => {
+      const updated = prev.map((p) => {
+        if (p.id === playId) {
+          const updatedPlay: Play = {
+            ...p,
+            name: name.trim() || p.name,
+            description: description,
+            category: category,
+          };
+          savePlayToCloud(updatedPlay).catch((err) => console.error('Error saving updated play to cloud:', err));
+          return updatedPlay;
+        }
+        return p;
+      });
+      return updated;
+    });
+
+    setShareNotification('✅ ¡Detalles de la jugada actualizados y sincronizados en la Nube!');
+    setTimeout(() => setShareNotification(null), 3000);
   };
 
   // Import JSON plays
@@ -1412,6 +1495,17 @@ export default function App() {
     }
   }, [activePlay?.drawings, activePlay?.steps, activePlayId, playerNames, isDescriptionCustom]);
 
+  // Auto-sync active play modifications to Cloud Firestore in real time
+  const activePlayJson = JSON.stringify(activePlay);
+  useEffect(() => {
+    if (activePlay && activePlay.id) {
+      const timer = setTimeout(() => {
+        savePlayToCloud(activePlay).catch((err) => console.error('Cloud auto-save error:', err));
+      }, 800);
+      return () => clearTimeout(timer);
+    }
+  }, [activePlayJson]);
+
   return (
     <div className="min-h-screen bg-brand-bg font-sans text-brand-text-bright flex flex-col antialiased relative">
       {/* Toast Notification for Shares */}
@@ -1429,11 +1523,32 @@ export default function App() {
             🏀
           </div>
           <div>
-            <h1 className="text-xl font-extrabold tracking-tight text-white flex items-center gap-2">
-              Pizarra Táctica de Baloncesto
-            </h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-extrabold tracking-tight text-white flex items-center gap-2">
+                Pizarra Táctica de Baloncesto
+              </h1>
+              {cloudSyncStatus === 'synced' && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" title="Sincronización en la nube activa. Todas tus jugadas están guardadas en tiempo real.">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  </span>
+                  ☁️ Sincronizado
+                </span>
+              )}
+              {cloudSyncStatus === 'syncing' && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20 animate-pulse">
+                  ☁️ Conectando...
+                </span>
+              )}
+              {cloudSyncStatus === 'error' && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                  ⚠️ Error Nube
+                </span>
+              )}
+            </div>
             <p className="text-[11px] text-brand-text-dim font-medium">
-              Crea, anima y diseña jugadas de entrenamiento en tiempo real
+              Crea, anima y sincroniza jugadas en tiempo real entre ordenador y móvil
             </p>
           </div>
         </div>
@@ -1648,25 +1763,72 @@ export default function App() {
             <div className={`${isSidebarOpen ? 'lg:col-span-2' : 'lg:col-span-3'} flex flex-col gap-5 h-full transition-all duration-300`}>
               {/* Casillas de Nombre y Descripción de la Jugada */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4" id="play-metadata-cards">
-                {/* Casilla de Título */}
-                <div className="md:col-span-1 bg-brand-panel border border-brand-border rounded-xl p-4 shadow-xl flex flex-col justify-between gap-1 animate-fade-in">
+                {/* Casilla de Título y Categoría */}
+                <div className="md:col-span-1 bg-brand-panel border border-brand-border rounded-xl p-4 shadow-xl flex flex-col justify-between gap-2 animate-fade-in">
                   <div>
-                    <label className="text-[10px] font-bold uppercase tracking-wider text-brand-text-dim block mb-1">
-                      🏷️ Título de la Jugada
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-brand-text-dim block">
+                        🏷️ Título de la Jugada
+                      </label>
+                      <span className="text-[9px] px-1.5 py-0.5 rounded font-mono font-bold bg-brand-accent/15 text-brand-accent border border-brand-accent/25">
+                        {activePlay.category === 'banda' ? 'Banda ↔️' : activePlay.category === 'fondo' ? 'Fondo ↕️' : 'Juego 🏀'}
+                      </span>
+                    </div>
                     <input
                       type="text"
-                      disabled={activePlay.isSaved}
                       value={activePlay.name}
                       onChange={(e) => handleUpdatePlayMetadata('name', e.target.value)}
-                      className={`w-full text-sm font-bold bg-brand-bg text-brand-text-bright border border-brand-border focus:border-brand-accent focus:ring-1 focus:ring-brand-accent/50 rounded-lg px-2.5 py-1.5 outline-none transition-all placeholder:text-brand-text-dim/40 ${
-                        activePlay.isSaved ? 'opacity-70 cursor-not-allowed bg-brand-bg/20' : ''
-                      }`}
+                      className="w-full text-sm font-bold bg-brand-bg text-brand-text-bright border border-brand-border focus:border-brand-accent focus:ring-1 focus:ring-brand-accent/50 rounded-lg px-2.5 py-1.5 outline-none transition-all placeholder:text-brand-text-dim/40"
                       placeholder="Ej: Jugada de Cuernos"
                     />
                   </div>
-                  <div className="flex items-center justify-between gap-2 mt-2 pt-1.5 border-t border-brand-border/30">
-                    <span className="text-[9px] text-brand-text-dim italic">Guardado instantáneo con autoguardado</span>
+
+                  {/* Selector de Categoría Rápido */}
+                  <div>
+                    <label className="text-[9px] font-bold uppercase tracking-wider text-brand-text-dim block mb-1">
+                      📂 Apartado en Biblioteca
+                    </label>
+                    <div className="grid grid-cols-3 gap-1 select-none">
+                      <button
+                        type="button"
+                        onClick={() => handleUpdatePlayMetadata('category', 'juego')}
+                        className={`py-1 text-[10px] font-bold rounded-md border transition-all cursor-pointer text-center ${
+                          (activePlay.category || 'juego') === 'juego'
+                            ? 'bg-brand-accent text-white border-brand-accent shadow'
+                            : 'bg-brand-bg/70 text-brand-text-dim border-brand-border hover:text-white'
+                        }`}
+                      >
+                        🏀 Juego
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleUpdatePlayMetadata('category', 'banda')}
+                        className={`py-1 text-[10px] font-bold rounded-md border transition-all cursor-pointer text-center ${
+                          activePlay.category === 'banda'
+                            ? 'bg-brand-accent text-white border-brand-accent shadow'
+                            : 'bg-brand-bg/70 text-brand-text-dim border-brand-border hover:text-white'
+                        }`}
+                      >
+                        ↔️ Banda
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleUpdatePlayMetadata('category', 'fondo')}
+                        className={`py-1 text-[10px] font-bold rounded-md border transition-all cursor-pointer text-center ${
+                          activePlay.category === 'fondo'
+                            ? 'bg-brand-accent text-white border-brand-accent shadow'
+                            : 'bg-brand-bg/70 text-brand-text-dim border-brand-border hover:text-white'
+                        }`}
+                      >
+                        ↕️ Fondo
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-brand-border/30">
+                    <span className="text-[9px] text-emerald-400 font-medium flex items-center gap-1">
+                      <span>☁️</span> Sincronizado en tiempo real
+                    </span>
                   </div>
                 </div>
 
@@ -1678,26 +1840,22 @@ export default function App() {
                         📝 Descripción jugada
                       </label>
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        {!activePlay.isSaved && (
-                          <>
-                            <button
-                              type="button"
-                              onClick={handleClearDescription}
-                              className="px-2 py-0.5 text-[8.5px] font-bold uppercase bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 hover:text-rose-300 rounded transition-all cursor-pointer whitespace-nowrap active:scale-95 flex items-center gap-1"
-                              title="Borrar la descripción actual de la jugada"
-                            >
-                              🗑️ Borrar
-                            </button>
-                            <button
-                              type="button"
-                              onClick={handleRegenerateTranscription}
-                              className="px-2 py-0.5 text-[8.5px] font-bold uppercase bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 hover:text-emerald-300 rounded transition-all cursor-pointer whitespace-nowrap active:scale-95 flex items-center gap-1"
-                              title="Generar de nuevo en base a los movimientos actuales"
-                            >
-                              🤖 Auto
-                            </button>
-                          </>
-                        )}
+                        <button
+                          type="button"
+                          onClick={handleClearDescription}
+                          className="px-2 py-0.5 text-[8.5px] font-bold uppercase bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 hover:text-rose-300 rounded transition-all cursor-pointer whitespace-nowrap active:scale-95 flex items-center gap-1"
+                          title="Borrar la descripción actual de la jugada"
+                        >
+                          🗑️ Borrar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleRegenerateTranscription}
+                          className="px-2 py-0.5 text-[8.5px] font-bold uppercase bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 hover:text-emerald-300 rounded transition-all cursor-pointer whitespace-nowrap active:scale-95 flex items-center gap-1"
+                          title="Generar de nuevo en base a los movimientos actuales"
+                        >
+                          🤖 Auto
+                        </button>
                         <button
                           type="button"
                           onClick={() => speakText(activePlay.description || '• Paso 1 (Posición de salida): Arrastra los jugadores para grafiar la jugada.')}
@@ -1725,15 +1883,12 @@ export default function App() {
                     </div>
                     <textarea
                       value={activePlay.description}
-                      disabled={activePlay.isSaved}
                       onChange={(e) => {
                         setIsDescriptionCustom((prev) => ({ ...prev, [activePlayId]: true }));
                         handleUpdatePlayMetadata('description', e.target.value);
                       }}
                       rows={2}
-                      className={`w-full text-xs bg-brand-bg/50 text-brand-text-bright border border-brand-border rounded-lg px-3 py-1.5 outline-none resize-none transition-all h-[66px] focus:border-brand-accent focus:ring-1 focus:ring-brand-accent/30 font-mono leading-relaxed ${
-                        activePlay.isSaved ? 'opacity-70 cursor-not-allowed bg-brand-bg/20' : ''
-                      }`}
+                      className="w-full text-xs bg-brand-bg/50 text-brand-text-bright border border-brand-border rounded-lg px-3 py-1.5 outline-none resize-none transition-all h-[66px] focus:border-brand-accent focus:ring-1 focus:ring-brand-accent/30 font-mono leading-relaxed"
                       placeholder="Se transcribirá tu jugada y pasos automáticamente a medida que vas grafiando..."
                     />
                   </div>
@@ -1758,7 +1913,7 @@ export default function App() {
                 setPlayerAnchors={setPlayerAnchors}
                 deletedDefenders={deletedDefenders}
                 setDeletedDefenders={setDeletedDefenders}
-                isViewerMode={isViewerMode || activePlay.isSaved}
+                isViewerMode={isViewerMode}
                 onRestartPlay={handleRestartPlay}
                 onClearAnimationSteps={handleClearAnimationSteps}
                 isInitialSetupMode={isInitialSetupMode}
@@ -1766,7 +1921,7 @@ export default function App() {
               />
  
               {/* Sincronizar Atacantes (Anclajes entre Jugadores) - Rendered in App.tsx right after the whiteboard */}
-              {!isViewerMode && !activePlay.isSaved && (
+              {!isViewerMode && (
                 <div id="player-anchoring-panel" className="bg-brand-panel/50 border border-brand-border/60 rounded-xl p-4 shadow-xl animate-fade-in shrink-0 select-none">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-3">
                     <div className="flex items-center gap-1.5">
@@ -1835,7 +1990,7 @@ export default function App() {
                 onScrub={handleScrub}
                 autoCreateStepOnMove={autoCreateStepOnMove}
                 onToggleAutoCreateStep={setAutoCreateStepOnMove}
-                isViewerMode={isViewerMode || activePlay.isSaved}
+                isViewerMode={isViewerMode}
                 onClearAnimationSteps={handleClearAnimationSteps}
               />
 
@@ -2070,6 +2225,7 @@ export default function App() {
                     activePlayId={activePlayId}
                     onSelectPlay={handleSelectPlay}
                     onSavePlay={handleSavePlay}
+                    onUpdatePlayDetails={handleUpdatePlayDetails}
                     onDeletePlay={handleDeletePlay}
                     currentPlay={activePlay}
                     onShareLibrary={handleShareAllPlays}

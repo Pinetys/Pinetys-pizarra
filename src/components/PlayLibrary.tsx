@@ -6,6 +6,7 @@ interface PlayLibraryProps {
   activePlayId: string;
   onSelectPlay: (playId: string) => void;
   onSavePlay: (name: string, description: string, category: 'banda' | 'fondo' | 'juego') => void;
+  onUpdatePlayDetails?: (playId: string, name: string, description: string, category: 'banda' | 'fondo' | 'juego') => void;
   onDeletePlay: (playId: string) => void;
   currentPlay: Play;
   onShareLibrary: () => void;
@@ -17,6 +18,7 @@ export default function PlayLibrary({
   activePlayId,
   onSelectPlay,
   onSavePlay,
+  onUpdatePlayDetails,
   onDeletePlay,
   currentPlay,
   onShareLibrary,
@@ -27,6 +29,29 @@ export default function PlayLibrary({
   const [saveCategory, setSaveCategory] = useState<'banda' | 'fondo' | 'juego'>('juego');
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [activeTab, setActiveTab] = useState<'juego' | 'banda' | 'fondo'>('juego');
+
+  // State for editing existing play details
+  const [editingPlay, setEditingPlay] = useState<Play | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editCategory, setEditCategory] = useState<'banda' | 'fondo' | 'juego'>('juego');
+
+  const handleOpenEditModal = (play: Play, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingPlay(play);
+    setEditName(play.name);
+    setEditDescription(play.description || '');
+    setEditCategory(play.category || 'juego');
+  };
+
+  const handleSaveEdit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPlay || !editName.trim()) return;
+    if (onUpdatePlayDetails) {
+      onUpdatePlayDetails(editingPlay.id, editName.trim(), editDescription.trim(), editCategory);
+    }
+    setEditingPlay(null);
+  };
 
   const handleCreateSave = (e: React.FormEvent) => {
     e.preventDefault();
@@ -143,7 +168,15 @@ export default function PlayLibrary({
                 </div>
 
                 {/* Action Buttons */}
-                <div className="flex flex-col gap-1 items-end shrink-0" onClick={(e) => e.stopPropagation()}>
+                <div className="flex flex-col sm:flex-row gap-1 items-center shrink-0" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    type="button"
+                    onClick={(e) => handleOpenEditModal(play, e)}
+                    className="p-1.5 hover:bg-amber-500/20 rounded-lg text-amber-400 hover:text-amber-300 text-xs cursor-pointer transition-all hover:scale-110"
+                    title="Editar nombre, categoría y descripción de la jugada"
+                  >
+                    ✏️
+                  </button>
                   <button
                     type="button"
                     onClick={(e) => {
@@ -167,9 +200,10 @@ export default function PlayLibrary({
         <button
           id="btn-show-save-modal"
           onClick={() => setShowSaveModal(true)}
-          className="w-full py-2 bg-brand-accent hover:bg-brand-accent/90 text-white font-bold text-xs rounded-xl shadow-lg shadow-brand-accent/20 transition-all cursor-pointer text-center"
+          className="w-full py-2 bg-brand-accent hover:bg-brand-accent/90 text-white font-bold text-xs rounded-xl shadow-lg shadow-brand-accent/20 transition-all cursor-pointer text-center flex items-center justify-center gap-1.5"
         >
-          💾 Guardar Jugada Actual en Biblioteca
+          <span>💾</span>
+          <span>Guardar Jugada Actual en Biblioteca</span>
         </button>
       </div>
 
@@ -209,7 +243,7 @@ export default function PlayLibrary({
                 <select
                   value={saveCategory}
                   onChange={(e) => setSaveCategory(e.target.value as 'banda' | 'fondo' | 'juego')}
-                  className="w-full text-xs bg-brand-bg border border-brand-border rounded-lg px-2.5 py-2 text-brand-text-bright focus:outline-none focus:border-brand-accent focus:ring-1 focus:ring-brand-accent/40"
+                  className="w-full text-xs bg-brand-bg border border-brand-border rounded-lg px-2.5 py-2 text-brand-text-bright focus:outline-none focus:border-brand-accent focus:ring-1 focus:ring-brand-accent/40 cursor-pointer"
                 >
                   <option value="juego">🏀 Juego en Estático</option>
                   <option value="banda">↔️ Saque de Banda</option>
@@ -242,6 +276,85 @@ export default function PlayLibrary({
                 className="px-4 py-1.5 bg-brand-accent hover:bg-brand-accent/90 text-white font-bold rounded-lg cursor-pointer"
               >
                 Guardar
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Edit Existing Play Details Modal */}
+      {editingPlay && (
+        <div className="fixed inset-0 bg-brand-bg/90 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
+          <form
+            onSubmit={handleSaveEdit}
+            className="bg-brand-panel border border-brand-border rounded-2xl p-5 max-w-sm w-full space-y-4 shadow-2xl shadow-amber-500/10"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-amber-400">✏️</span>
+                <h4 className="font-bold text-sm text-brand-text-bright">Editar Datos de la Jugada</h4>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingPlay(null)}
+                className="text-brand-text-dim hover:text-white cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-[10px] uppercase font-bold text-brand-text-dim mb-1">Nombre del Sistema</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej. Cuernos con pase ciego"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  className="w-full text-xs bg-brand-bg border border-brand-border rounded-lg px-3 py-2 text-brand-text-bright focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/40"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] uppercase font-bold text-brand-text-dim mb-1">Apartado / Categoría</label>
+                <select
+                  value={editCategory}
+                  onChange={(e) => setEditCategory(e.target.value as 'banda' | 'fondo' | 'juego')}
+                  className="w-full text-xs bg-brand-bg border border-brand-border rounded-lg px-2.5 py-2 text-brand-text-bright focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/40 cursor-pointer"
+                >
+                  <option value="juego">🏀 Juego en Estático</option>
+                  <option value="banda">↔️ Saque de Banda</option>
+                  <option value="fondo">↕️ Saque de Fondo</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] uppercase font-bold text-brand-text-dim mb-1">Descripción / Claves Tácticas</label>
+                <textarea
+                  placeholder="Detalles tácticos, claves de defensa o rotaciones"
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  rows={4}
+                  className="w-full text-xs bg-brand-bg border border-brand-border rounded-lg px-3 py-2 text-brand-text-bright focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/40 resize-none font-mono"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-2 justify-end text-xs">
+              <button
+                type="button"
+                onClick={() => setEditingPlay(null)}
+                className="px-3 py-1.5 bg-brand-bg hover:bg-white/5 border border-brand-border rounded-lg text-brand-text-bright font-medium cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-lg cursor-pointer flex items-center gap-1.5 shadow-lg shadow-amber-500/20"
+              >
+                <span>💾</span>
+                <span>Guardar Cambios</span>
               </button>
             </div>
           </form>
