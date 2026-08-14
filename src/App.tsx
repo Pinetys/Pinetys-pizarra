@@ -130,6 +130,10 @@ export default function App() {
     return params.get('mode') === 'viewer' || params.has('sharedPlays');
   });
 
+  // Mobile navigation tabs: 'board' | 'library' | 'team'
+  const [mobileTab, setMobileTab] = useState<'board' | 'library' | 'team'>('board');
+  const [quickCategoryFilter, setQuickCategoryFilter] = useState<'all' | 'juego' | 'banda' | 'fondo'>('all');
+
   const [playerAnchors, setPlayerAnchors] = useState<Record<string, string>>({
     O1: '',
     O2: '',
@@ -674,6 +678,7 @@ export default function App() {
     setActivePlayId(id);
     setFractionalIndex(0.0);
     setCurrentStepIndex(0);
+    setMobileTab('board');
   };
 
   // Create new play templates (Half Court or Full Court reset)
@@ -1817,7 +1822,270 @@ export default function App() {
           </div>
         ) : (
           /* STANDARD FULLY BUNDLED ATHLETIC EDITOR VIEW */
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="flex flex-col gap-4">
+            {/* Mobile Navigation Switcher (Tabs on Mobile/Tablet) */}
+            <div className="lg:hidden flex items-center justify-between bg-brand-panel border border-brand-border rounded-xl p-1 shadow-lg sticky top-2 z-30 backdrop-blur-md">
+              <button
+                type="button"
+                onClick={() => setMobileTab('board')}
+                className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  mobileTab === 'board'
+                    ? 'bg-brand-accent text-white shadow-md'
+                    : 'text-brand-text-dim hover:text-white'
+                }`}
+              >
+                <span>🏀 Pizarra</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMobileTab('library')}
+                className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  mobileTab === 'library'
+                    ? 'bg-brand-accent text-white shadow-md'
+                    : 'text-brand-text-dim hover:text-white'
+                }`}
+              >
+                <span>📚 Biblioteca ({plays.length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMobileTab('team')}
+                className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  mobileTab === 'team'
+                    ? 'bg-brand-accent text-white shadow-md'
+                    : 'text-brand-text-dim hover:text-white'
+                }`}
+              >
+                <span>👥 Plantilla</span>
+              </button>
+            </div>
+
+            {/* TOP QUICK PLAY SELECTOR BAR */}
+            <div className="bg-brand-panel border border-brand-border rounded-xl p-3.5 shadow-xl flex flex-col gap-2.5 animate-fade-in">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-brand-border/60 pb-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-base font-bold text-brand-accent">⚡</span>
+                  <span className="text-xs font-extrabold uppercase tracking-wider text-white">
+                    Selector Rápido de Jugadas
+                  </span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-brand-accent/20 text-brand-accent font-bold font-mono">
+                    {plays.length} {plays.length === 1 ? 'jugada' : 'jugadas'}
+                  </span>
+                </div>
+
+                {/* Quick Category Filters */}
+                <div className="flex items-center gap-1 bg-brand-bg/70 p-0.5 rounded-lg border border-brand-border/60 text-xs select-none overflow-x-auto">
+                  <button
+                    type="button"
+                    onClick={() => setQuickCategoryFilter('all')}
+                    className={`px-2.5 py-1 text-[10px] sm:text-xs font-bold rounded-md transition-all cursor-pointer whitespace-nowrap ${
+                      quickCategoryFilter === 'all'
+                        ? 'bg-brand-accent text-white shadow'
+                        : 'text-brand-text-dim hover:text-white'
+                    }`}
+                  >
+                    Todas ({plays.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setQuickCategoryFilter('juego')}
+                    className={`px-2.5 py-1 text-[10px] sm:text-xs font-bold rounded-md transition-all cursor-pointer whitespace-nowrap ${
+                      quickCategoryFilter === 'juego'
+                        ? 'bg-brand-accent text-white shadow'
+                        : 'text-brand-text-dim hover:text-white'
+                    }`}
+                  >
+                    🏀 Juego ({plays.filter((p) => (p.category || 'juego') === 'juego').length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setQuickCategoryFilter('banda')}
+                    className={`px-2.5 py-1 text-[10px] sm:text-xs font-bold rounded-md transition-all cursor-pointer whitespace-nowrap ${
+                      quickCategoryFilter === 'banda'
+                        ? 'bg-brand-accent text-white shadow'
+                        : 'text-brand-text-dim hover:text-white'
+                    }`}
+                  >
+                    ↔️ Banda ({plays.filter((p) => p.category === 'banda').length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setQuickCategoryFilter('fondo')}
+                    className={`px-2.5 py-1 text-[10px] sm:text-xs font-bold rounded-md transition-all cursor-pointer whitespace-nowrap ${
+                      quickCategoryFilter === 'fondo'
+                        ? 'bg-brand-accent text-white shadow'
+                        : 'text-brand-text-dim hover:text-white'
+                    }`}
+                  >
+                    ↕️ Fondo ({plays.filter((p) => p.category === 'fondo').length})
+                  </button>
+                </div>
+              </div>
+
+              {/* Fast Play Chips Carousel (Horizontal Scroll on Mobile/Touch) */}
+              <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin scrollbar-thumb-brand-border">
+                {plays
+                  .filter((p) => quickCategoryFilter === 'all' || (p.category || 'juego') === quickCategoryFilter)
+                  .map((p) => {
+                    const isActive = p.id === activePlayId;
+                    const categoryIcon = p.category === 'banda' ? '↔️' : p.category === 'fondo' ? '↕️' : '🏀';
+                    return (
+                      <button
+                        key={`quick-${p.id}`}
+                        type="button"
+                        onClick={() => handleSelectPlay(p.id)}
+                        className={`px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 flex items-center gap-2 border shadow-sm active:scale-95 ${
+                          isActive
+                            ? 'bg-brand-accent text-white border-brand-accent shadow-brand-accent/20 ring-2 ring-brand-accent/40'
+                            : 'bg-brand-bg/80 hover:bg-brand-bg text-brand-text-bright border-brand-border hover:border-brand-accent/50'
+                        }`}
+                      >
+                        <span>{categoryIcon}</span>
+                        <span className="max-w-[130px] truncate">{p.name}</span>
+                        <span
+                          className={`text-[9px] px-1.5 py-0.5 rounded-full font-mono ${
+                            isActive ? 'bg-black/25 text-white' : 'bg-white/10 text-brand-text-dim'
+                          }`}
+                        >
+                          {p.steps.length} {p.steps.length === 1 ? 'paso' : 'pasos'}
+                        </span>
+                      </button>
+                    );
+                  })}
+              </div>
+
+              {/* Quick Action controls row */}
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-brand-border/40">
+                <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+                  <label className="text-[10px] font-bold uppercase text-brand-text-dim whitespace-nowrap">
+                    Cambiar:
+                  </label>
+                  <select
+                    value={activePlayId}
+                    onChange={(e) => handleSelectPlay(e.target.value)}
+                    className="w-full bg-brand-bg text-brand-text-bright text-xs font-bold border border-brand-border rounded-lg px-2.5 py-1.5 outline-none focus:border-brand-accent cursor-pointer"
+                  >
+                    {plays.map((p) => (
+                      <option key={`opt-${p.id}`} value={p.id}>
+                        {p.category === 'banda' ? '↔️ Banda: ' : p.category === 'fondo' ? '↕️ Fondo: ' : '🏀 Juego: '}
+                        {p.name} ({p.steps.length} {p.steps.length === 1 ? 'fase' : 'fases'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handlePlayToggle}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1 shadow-sm cursor-pointer active:scale-95 ${
+                      isAnimating
+                        ? 'bg-amber-600 hover:bg-amber-500 text-white'
+                        : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                    }`}
+                  >
+                    <span>{isAnimating ? '⏸️' : '▶️'}</span>
+                    <span>{isAnimating ? 'Pausar' : 'Reproducir'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleNewPlay('half')}
+                    className="px-2.5 py-1.5 bg-brand-bg hover:bg-white/10 border border-brand-border rounded-lg text-xs font-bold text-brand-text-bright transition-all cursor-pointer flex items-center gap-1"
+                    title="Crear nueva jugada de media cancha"
+                  >
+                    <span>➕</span>
+                    <span className="hidden sm:inline">Nueva</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobileTab('library');
+                      setIsSidebarOpen(true);
+                    }}
+                    className="px-2.5 py-1.5 bg-brand-accent/20 hover:bg-brand-accent/30 border border-brand-accent/30 rounded-lg text-xs font-bold text-white transition-all cursor-pointer flex items-center gap-1"
+                  >
+                    <span>📚</span>
+                    <span>Ver Biblioteca</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* If Mobile Tab is 'library', display the PlayLibrary directly */}
+            {mobileTab === 'library' && (
+              <div className="lg:hidden flex flex-col gap-4 animate-fade-in">
+                <div className="bg-brand-accent/15 border border-brand-accent/30 rounded-xl p-3 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">📖</span>
+                    <span className="text-xs font-bold text-white">
+                      Biblioteca Táctica • Toca cualquier jugada para verla en la cancha
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setMobileTab('board')}
+                    className="px-3 py-1 bg-brand-accent text-white text-xs font-bold rounded-lg cursor-pointer"
+                  >
+                    Ir a Cancha 🏀
+                  </button>
+                </div>
+                <PlayLibrary
+                  plays={plays}
+                  activePlayId={activePlayId}
+                  onSelectPlay={handleSelectPlay}
+                  onSavePlay={handleSavePlay}
+                  onUpdatePlayDetails={handleUpdatePlayDetails}
+                  onDeletePlay={handleDeletePlay}
+                  currentPlay={activePlay}
+                  onShareLibrary={handleShareAllPlays}
+                  onShareLibraryWhatsApp={handleShareAllPlaysWhatsApp}
+                />
+              </div>
+            )}
+
+            {/* If Mobile Tab is 'team', display the Player Names editor */}
+            {mobileTab === 'team' && (
+              <div className="lg:hidden flex flex-col gap-4 animate-fade-in bg-brand-panel border border-brand-border rounded-xl p-4 shadow-xl">
+                <div className="flex items-center justify-between border-b border-brand-border pb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">👥</span>
+                    <h3 className="text-sm font-bold text-white uppercase">Plantilla y Nombres de Jugadores</h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setMobileTab('board')}
+                    className="px-3 py-1 bg-brand-accent text-white text-xs font-bold rounded-lg cursor-pointer"
+                  >
+                    Volver a Pizarra 🏀
+                  </button>
+                </div>
+                <p className="text-xs text-brand-text-dim">
+                  Personaliza los dorsales y nombres de tus jugadores. Se sincronizan automáticamente en la Nube con todos tus dispositivos.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {(['O1', 'O2', 'O3', 'O4', 'O5'] as PlayerRole[]).map((pid, idx) => (
+                    <div key={`roster-mobile-${pid}`} className="flex flex-col gap-1 p-2.5 bg-brand-bg rounded-lg border border-brand-border">
+                      <label className="text-[11px] font-bold text-amber-400">
+                        Atacante #{idx + 1} ({pid})
+                      </label>
+                      <input
+                        type="text"
+                        value={playerNames[pid] || ''}
+                        onChange={(e) => {
+                          const updated = { ...playerNames, [pid]: e.target.value };
+                          setPlayerNames(updated);
+                          saveRosterToCloud(updated).catch((err) => console.error(err));
+                        }}
+                        className="bg-brand-panel border border-brand-border rounded px-2 py-1 text-xs text-white outline-none focus:border-brand-accent"
+                        placeholder={`Nombre jugador ${idx + 1}`}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className={`grid grid-cols-1 lg:grid-cols-3 gap-6 ${mobileTab !== 'board' ? 'hidden lg:grid' : ''}`}>
             {/* Playboard Column  */}
             <div className={`${isSidebarOpen ? 'lg:col-span-2' : 'lg:col-span-3'} flex flex-col gap-5 h-full transition-all duration-300`}>
               {/* Casillas de Nombre y Descripción de la Jugada */}
@@ -2294,8 +2562,9 @@ export default function App() {
               </div>
             )}
           </div>
-        )}
-      </main>
+        </div>
+      )}
+    </main>
 
       {/* Footer Design Credits and Help */}
       <footer className="border-t border-brand-border bg-brand-bg px-6 py-4 mt-auto select-none">

@@ -28,13 +28,14 @@ export default function PlayLibrary({
   const [saveDescription, setSaveDescription] = useState('');
   const [saveCategory, setSaveCategory] = useState<'banda' | 'fondo' | 'juego'>('juego');
   const [showSaveModal, setShowSaveModal] = useState(false);
-  const [activeTab, setActiveTab] = useState<'juego' | 'banda' | 'fondo'>(() => {
-    return currentPlay.category || 'juego';
+  const [activeTab, setActiveTab] = useState<'all' | 'juego' | 'banda' | 'fondo'>(() => {
+    return currentPlay.category || 'all';
   });
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Keep tab in sync with selected play's category if active play changes
   React.useEffect(() => {
-    if (currentPlay && currentPlay.category && currentPlay.category !== activeTab) {
+    if (currentPlay && currentPlay.category && activeTab !== 'all' && currentPlay.category !== activeTab) {
       setActiveTab(currentPlay.category);
     }
   }, [currentPlay.id, currentPlay.category]);
@@ -77,17 +78,26 @@ export default function PlayLibrary({
   const bandaCount = plays.filter((p) => p.category === 'banda').length;
   const fondoCount = plays.filter((p) => p.category === 'fondo').length;
 
-  // Filter plays to active category
-  // If a play doesn't have a category, treat it as 'juego'
+  // Filter plays to active category and search query
   const filteredPlays = plays.filter((play) => {
     const cat = play.category || 'juego';
-    return cat === activeTab;
+    const matchesCategory = activeTab === 'all' || cat === activeTab;
+    const matchesSearch =
+      !searchQuery.trim() ||
+      play.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (play.description && play.description.toLowerCase().includes(searchQuery.toLowerCase()));
+    return matchesCategory && matchesSearch;
   });
 
   return (
     <div className="flex flex-col bg-brand-panel border border-brand-border rounded-xl p-4 shadow-xl text-brand-text-bright h-full">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-brand-border pb-3 mb-3 gap-2">
-        <h3 className="text-sm font-bold tracking-wider text-brand-text-dim uppercase">📖 Biblioteca de Sistemas</h3>
+        <div className="flex items-center gap-2">
+          <span className="text-base">📚</span>
+          <h3 className="text-sm font-bold tracking-wider text-brand-text-bright uppercase">
+            Biblioteca de Jugadas ({plays.length})
+          </h3>
+        </div>
         <div className="flex flex-wrap gap-1.5 items-center">
           <button
             onClick={onShareLibrary}
@@ -106,14 +116,48 @@ export default function PlayLibrary({
         </div>
       </div>
 
+      {/* Search filter input */}
+      <div className="mb-2.5">
+        <div className="relative">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="🔍 Buscar jugada por nombre o acción..."
+            className="w-full bg-brand-bg/80 border border-brand-border rounded-lg pl-3 pr-8 py-1.5 text-xs text-brand-text-bright placeholder:text-brand-text-dim/60 focus:border-brand-accent focus:ring-1 focus:ring-brand-accent/40 outline-none transition-all"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-brand-text-dim hover:text-white text-xs cursor-pointer"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* Playbook Category Tabs */}
-      <div className="flex border-b border-brand-border/60 mb-3 text-xs select-none p-0.5 bg-brand-bg/50 rounded-lg gap-1">
+      <div className="grid grid-cols-4 border-b border-brand-border/60 mb-3 text-xs select-none p-0.5 bg-brand-bg/50 rounded-lg gap-1">
+        <button
+          type="button"
+          onClick={() => setActiveTab('all')}
+          className={`py-1.5 text-center font-semibold rounded-md transition-colors cursor-pointer text-[10px] md:text-xs flex items-center justify-center gap-1 ${
+            activeTab === 'all'
+              ? 'bg-brand-accent text-white font-bold shadow'
+              : 'text-brand-text-dim hover:text-brand-text-bright'
+          }`}
+        >
+          <span>Todas</span>
+          <span className="text-[10px] px-1.5 py-0.2 bg-white/10 rounded-full">{plays.length}</span>
+        </button>
         <button
           type="button"
           onClick={() => setActiveTab('juego')}
-          className={`flex-1 py-1.5 text-center font-semibold rounded-md transition-colors cursor-pointer text-[10px] md:text-xs flex items-center justify-center gap-1 ${
+          className={`py-1.5 text-center font-semibold rounded-md transition-colors cursor-pointer text-[10px] md:text-xs flex items-center justify-center gap-1 ${
             activeTab === 'juego'
-              ? 'bg-brand-accent/15 text-white border border-brand-accent/30 font-bold'
+              ? 'bg-brand-accent text-white font-bold shadow'
               : 'text-brand-text-dim hover:text-brand-text-bright'
           }`}
         >
@@ -123,9 +167,9 @@ export default function PlayLibrary({
         <button
           type="button"
           onClick={() => setActiveTab('banda')}
-          className={`flex-1 py-1.5 text-center font-semibold rounded-md transition-colors cursor-pointer text-[10px] md:text-xs flex items-center justify-center gap-1 ${
+          className={`py-1.5 text-center font-semibold rounded-md transition-colors cursor-pointer text-[10px] md:text-xs flex items-center justify-center gap-1 ${
             activeTab === 'banda'
-              ? 'bg-brand-accent/15 text-white border border-brand-accent/30 font-bold'
+              ? 'bg-brand-accent text-white font-bold shadow'
               : 'text-brand-text-dim hover:text-brand-text-bright'
           }`}
         >
@@ -135,9 +179,9 @@ export default function PlayLibrary({
         <button
           type="button"
           onClick={() => setActiveTab('fondo')}
-          className={`flex-1 py-1.5 text-center font-semibold rounded-md transition-colors cursor-pointer text-[10px] md:text-xs flex items-center justify-center gap-1 ${
+          className={`py-1.5 text-center font-semibold rounded-md transition-colors cursor-pointer text-[10px] md:text-xs flex items-center justify-center gap-1 ${
             activeTab === 'fondo'
-              ? 'bg-brand-accent/15 text-white border border-brand-accent/30 font-bold'
+              ? 'bg-brand-accent text-white font-bold shadow'
               : 'text-brand-text-dim hover:text-brand-text-bright'
           }`}
         >
@@ -147,10 +191,10 @@ export default function PlayLibrary({
       </div>
 
       {/* Plays Item List */}
-      <div className="flex-1 overflow-y-auto space-y-2 max-h-[300px] md:max-h-none scrollbar-thin scrollbar-thumb-brand-border pr-1 min-h-[160px]">
+      <div className="flex-1 overflow-y-auto space-y-2.5 max-h-[420px] md:max-h-none scrollbar-thin scrollbar-thumb-brand-border pr-1 min-h-[200px]">
         {filteredPlays.length === 0 ? (
           <div className="text-center py-8 text-xs text-brand-text-dim bg-brand-bg/20 rounded-xl border border-dashed border-brand-border/40">
-            🚫 No hay jugadas guardadas en este apartado
+            {searchQuery ? `🚫 No se encontraron jugadas que coincidan con "${searchQuery}"` : '🚫 No hay jugadas guardadas en este apartado'}
           </div>
         ) : (
           filteredPlays.map((play) => {
@@ -160,36 +204,60 @@ export default function PlayLibrary({
               <div
                 key={play.id}
                 onClick={() => onSelectPlay(play.id)}
-                className={`flex items-start justify-between p-3 rounded-xl border transition-all cursor-pointer ${
+                className={`flex flex-col sm:flex-row sm:items-center justify-between p-3.5 rounded-xl border transition-all cursor-pointer gap-2 ${
                   isActive
-                    ? 'bg-brand-accent/10 border-brand-accent text-white shadow-lg shadow-brand-accent/5'
-                    : 'bg-brand-bg/60 border-brand-border text-brand-text-dim hover:bg-brand-bg hover:border-brand-text-dim/30'
+                    ? 'bg-brand-accent/15 border-brand-accent text-white shadow-lg shadow-brand-accent/10 ring-1 ring-brand-accent/50'
+                    : 'bg-brand-bg/70 border-brand-border text-brand-text-dim hover:bg-brand-bg hover:border-brand-accent/50 hover:text-white'
                 }`}
               >
                 <div className="flex-1 min-w-0 pr-2">
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <span className="font-semibold text-xs line-clamp-1 text-brand-text-bright">{play.name}</span>
-                    <span className="text-[8px] px-1.5 py-0.5 rounded-full font-bold font-mono bg-brand-accent/10 text-brand-accent border border-brand-accent/20">
+                    <span className={`font-bold text-sm line-clamp-1 ${isActive ? 'text-white' : 'text-brand-text-bright'}`}>
+                      {play.name}
+                    </span>
+                    <span className="text-[8.5px] px-2 py-0.5 rounded-full font-bold font-mono bg-brand-accent/20 text-brand-accent border border-brand-accent/30">
                       {play.category === 'banda' ? 'BANDA ↔️' : play.category === 'fondo' ? 'FONDO ↕️' : 'JUEGO 🏀'}
                     </span>
-                    <span className="text-[10px] text-brand-text-dim">
-                      ({play.steps.length} {play.steps.length === 1 ? 'paso' : 'pasos'})
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 font-semibold text-brand-text-dim">
+                      {play.steps.length} {play.steps.length === 1 ? 'fase' : 'fases'}
                     </span>
+                    {isActive && (
+                      <span className="text-[9px] px-2 py-0.5 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-full font-bold">
+                        ✓ Activa en Cancha
+                      </span>
+                    )}
                   </div>
-                  <p className="text-[11px] text-brand-text-dim line-clamp-2 leading-relaxed">
-                    {play.description}
-                  </p>
-                  <div className="mt-1.5 text-[9px] text-brand-text-dim font-semibold font-mono uppercase">
-                    🎬 {play.courtType === 'half' ? 'Media Cancha' : 'Cancha Completa'}
+                  {play.description && (
+                    <p className="text-[11px] text-brand-text-dim line-clamp-2 leading-relaxed mb-1">
+                      {play.description}
+                    </p>
+                  )}
+                  <div className="text-[9px] text-brand-text-dim font-semibold font-mono uppercase flex items-center gap-2">
+                    <span>🎬 {play.courtType === 'half' ? 'Media Cancha' : 'Cancha Completa'}</span>
+                    {play.updatedAt && (
+                      <span>• ⏱️ {new Date(play.updatedAt).toLocaleDateString()}</span>
+                    )}
                   </div>
                 </div>
 
                 {/* Action Buttons */}
-                <div className="flex flex-col sm:flex-row gap-1 items-center shrink-0" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between sm:justify-end gap-1.5 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-brand-border/40" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    type="button"
+                    onClick={() => onSelectPlay(play.id)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 shadow-sm ${
+                      isActive
+                        ? 'bg-brand-accent text-white hover:bg-brand-accent/90'
+                        : 'bg-white/10 hover:bg-brand-accent hover:text-white text-brand-text-bright'
+                    }`}
+                  >
+                    <span>▶️</span>
+                    <span>{isActive ? 'En Cancha' : 'Cargar Jugada'}</span>
+                  </button>
                   <button
                     type="button"
                     onClick={(e) => handleOpenEditModal(play, e)}
-                    className="p-1.5 hover:bg-amber-500/20 rounded-lg text-amber-400 hover:text-amber-300 text-xs cursor-pointer transition-all hover:scale-110"
+                    className="p-1.5 hover:bg-amber-500/20 rounded-lg text-amber-400 hover:text-amber-300 text-xs cursor-pointer transition-all hover:scale-105"
                     title="Editar nombre, categoría y descripción de la jugada"
                   >
                     ✏️
@@ -200,7 +268,7 @@ export default function PlayLibrary({
                       e.stopPropagation();
                       onDeletePlay(play.id);
                     }}
-                    className="p-1.5 hover:bg-red-500/20 rounded-lg text-red-500 text-xs cursor-pointer transition-transform duration-200 hover:scale-110"
+                    className="p-1.5 hover:bg-red-500/20 rounded-lg text-red-500 text-xs cursor-pointer transition-transform duration-200 hover:scale-105"
                     title="Eliminar de biblioteca"
                   >
                     🗑️
