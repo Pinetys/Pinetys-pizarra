@@ -28,7 +28,16 @@ export default function PlayLibrary({
   const [saveDescription, setSaveDescription] = useState('');
   const [saveCategory, setSaveCategory] = useState<'banda' | 'fondo' | 'juego'>('juego');
   const [showSaveModal, setShowSaveModal] = useState(false);
-  const [activeTab, setActiveTab] = useState<'juego' | 'banda' | 'fondo'>('juego');
+  const [activeTab, setActiveTab] = useState<'juego' | 'banda' | 'fondo'>(() => {
+    return currentPlay.category || 'juego';
+  });
+
+  // Keep tab in sync with selected play's category if active play changes
+  React.useEffect(() => {
+    if (currentPlay && currentPlay.category && currentPlay.category !== activeTab) {
+      setActiveTab(currentPlay.category);
+    }
+  }, [currentPlay.id, currentPlay.category]);
 
   // State for editing existing play details
   const [editingPlay, setEditingPlay] = useState<Play | null>(null);
@@ -62,6 +71,11 @@ export default function PlayLibrary({
     setSaveCategory('juego');
     setShowSaveModal(false);
   };
+
+  // Count plays per category
+  const juegoCount = plays.filter((p) => (p.category || 'juego') === 'juego').length;
+  const bandaCount = plays.filter((p) => p.category === 'banda').length;
+  const fondoCount = plays.filter((p) => p.category === 'fondo').length;
 
   // Filter plays to active category
   // If a play doesn't have a category, treat it as 'juego'
@@ -97,35 +111,38 @@ export default function PlayLibrary({
         <button
           type="button"
           onClick={() => setActiveTab('juego')}
-          className={`flex-1 py-1.5 text-center font-semibold rounded-md transition-colors cursor-pointer text-[10px] md:text-xs ${
+          className={`flex-1 py-1.5 text-center font-semibold rounded-md transition-colors cursor-pointer text-[10px] md:text-xs flex items-center justify-center gap-1 ${
             activeTab === 'juego'
               ? 'bg-brand-accent/15 text-white border border-brand-accent/30 font-bold'
               : 'text-brand-text-dim hover:text-brand-text-bright'
           }`}
         >
-          🏀 Juego
+          <span>🏀 Juego</span>
+          <span className="text-[10px] px-1.5 py-0.2 bg-white/10 rounded-full">{juegoCount}</span>
         </button>
         <button
           type="button"
           onClick={() => setActiveTab('banda')}
-          className={`flex-1 py-1.5 text-center font-semibold rounded-md transition-colors cursor-pointer text-[10px] md:text-xs ${
+          className={`flex-1 py-1.5 text-center font-semibold rounded-md transition-colors cursor-pointer text-[10px] md:text-xs flex items-center justify-center gap-1 ${
             activeTab === 'banda'
               ? 'bg-brand-accent/15 text-white border border-brand-accent/30 font-bold'
               : 'text-brand-text-dim hover:text-brand-text-bright'
           }`}
         >
-          ↔️ Banda
+          <span>↔️ Banda</span>
+          <span className="text-[10px] px-1.5 py-0.2 bg-white/10 rounded-full">{bandaCount}</span>
         </button>
         <button
           type="button"
           onClick={() => setActiveTab('fondo')}
-          className={`flex-1 py-1.5 text-center font-semibold rounded-md transition-colors cursor-pointer text-[10px] md:text-xs ${
+          className={`flex-1 py-1.5 text-center font-semibold rounded-md transition-colors cursor-pointer text-[10px] md:text-xs flex items-center justify-center gap-1 ${
             activeTab === 'fondo'
               ? 'bg-brand-accent/15 text-white border border-brand-accent/30 font-bold'
               : 'text-brand-text-dim hover:text-brand-text-bright'
           }`}
         >
-          ↕️ Fondo
+          <span>↕️ Fondo</span>
+          <span className="text-[10px] px-1.5 py-0.2 bg-white/10 rounded-full">{fondoCount}</span>
         </button>
       </div>
 

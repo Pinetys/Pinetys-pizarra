@@ -7,6 +7,9 @@ import {
   savePlayToCloud,
   deletePlayFromCloud,
   syncLocalPlaysToCloud,
+  fetchPlaysFromCloud,
+  subscribeToRoster,
+  saveRosterToCloud,
 } from './lib/firebase';
 import { Play, PlayStep, PlayerState, DrawingPath, PlayerRole } from './types';
 import { defaultHalfCourtPlayers, defaultFullCourtPlayers } from './utils';
@@ -268,23 +271,30 @@ export default function App() {
 
   // Sync custom plays to localStorage
   useEffect(() => {
-    localStorage.setItem('basket_tactical_plays', JSON.stringify(plays));
+    if (plays.length > 0) {
+      localStorage.setItem('basket_tactical_plays', JSON.stringify(plays));
+    }
   }, [plays]);
 
   const [cloudSyncStatus, setCloudSyncStatus] = useState<'synced' | 'syncing' | 'error'>('syncing');
+  const [hasLoadedCloud, setHasLoadedCloud] = useState<boolean>(false);
   const isInitialCloudLoadRef = useRef<boolean>(true);
 
   // Real-time Firestore synchronization across PC, Mobile, Render.com, etc.
   useEffect(() => {
     setCloudSyncStatus('syncing');
-    const unsubscribe = subscribeToPlays(
+    const unsubscribePlays = subscribeToPlays(
       (cloudPlays) => {
         setCloudSyncStatus('synced');
+        setHasLoadedCloud(true);
         if (cloudPlays && cloudPlays.length > 0) {
           setPlays(cloudPlays);
           setActivePlayId((currentActive) => {
             const exists = cloudPlays.some((p) => p.id === currentActive);
-            return exists ? currentActive : cloudPlays[0].id;
+            if (!exists || currentActive === 'custom-initial-play') {
+              return cloudPlays[0].id;
+            }
+            return currentActive;
           });
         } else if (isInitialCloudLoadRef.current) {
           // If Firestore is empty on initial run, upload default local plays
@@ -298,8 +308,44 @@ export default function App() {
       }
     );
 
-    return () => unsubscribe();
+    // Also subscribe to team roster names synchronization across all devices
+    const unsubscribeRoster = subscribeToRoster((cloudRoster) => {
+      if (cloudRoster && Object.keys(cloudRoster).length > 0) {
+        setPlayerNames(cloudRoster);
+      }
+    });
+
+    return () => {
+      unsubscribePlays();
+      unsubscribeRoster();
+    };
   }, []);
+
+  // Force manual cloud sync refresh
+  const handleForceSyncCloud = async () => {
+    setCloudSyncStatus('syncing');
+    try {
+      const cloudPlays = await fetchPlaysFromCloud();
+      setCloudSyncStatus('synced');
+      setHasLoadedCloud(true);
+      if (cloudPlays && cloudPlays.length > 0) {
+        setPlays(cloudPlays);
+        setActivePlayId((currentActive) => {
+          const exists = cloudPlays.some((p) => p.id === currentActive);
+          return exists ? currentActive : cloudPlays[0].id;
+        });
+        setShareNotification(`☁️ ¡Sincronizado! Se han cargado ${cloudPlays.length} jugadas de la nube.`);
+      } else {
+        setShareNotification('☁️ Conectado a la nube. No hay jugadas adicionales.');
+      }
+      setTimeout(() => setShareNotification(null), 4000);
+    } catch (err) {
+      console.error('Error fetching cloud plays:', err);
+      setCloudSyncStatus('error');
+      setShareNotification('⚠️ Error al conectar con la nube. Comprueba tu conexión.');
+      setTimeout(() => setShareNotification(null), 4000);
+    }
+  };
 
   // Check for shared plays or single shared play in URL query params on mount
   useEffect(() => {
@@ -1498,13 +1544,15 @@ export default function App() {
   // Auto-sync active play modifications to Cloud Firestore in real time
   const activePlayJson = JSON.stringify(activePlay);
   useEffect(() => {
+    // Only auto-save if cloud data has performed initial sync, to prevent overwriting cloud data on startup
+    if (!hasLoadedCloud) return;
     if (activePlay && activePlay.id) {
       const timer = setTimeout(() => {
         savePlayToCloud(activePlay).catch((err) => console.error('Cloud auto-save error:', err));
-      }, 800);
+      }, 600);
       return () => clearTimeout(timer);
     }
-  }, [activePlayJson]);
+  }, [activePlayJson, hasLoadedCloud]);
 
   return (
     <div className="min-h-screen bg-brand-bg font-sans text-brand-text-bright flex flex-col antialiased relative">
@@ -1528,23 +1576,34 @@ export default function App() {
                 Pizarra Táctica de Baloncesto
               </h1>
               {cloudSyncStatus === 'synced' && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" title="Sincronización en la nube activa. Todas tus jugadas están guardadas en tiempo real.">
+                <button
+                  type="button"
+                  onClick={handleForceSyncCloud}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 transition-all cursor-pointer"
+                  title="Sincronizado en tiempo real. Haz clic para actualizar datos de la nube."
+                >
                   <span className="relative flex h-2 w-2">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                   </span>
-                  ☁️ Sincronizado
-                </span>
+                  <span>☁️ Sincronizado</span>
+                  <span className="text-[9px] opacity-70">🔄</span>
+                </button>
               )}
               {cloudSyncStatus === 'syncing' && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20 animate-pulse">
-                  ☁️ Conectando...
+                  ☁️ Sincronizando con Nube...
                 </span>
               )}
               {cloudSyncStatus === 'error' && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20">
-                  ⚠️ Error Nube
-                </span>
+                <button
+                  type="button"
+                  onClick={handleForceSyncCloud}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 cursor-pointer"
+                  title="Reintentar conexión con la nube"
+                >
+                  ⚠️ Reintentar Conexión
+                </button>
               )}
             </div>
             <p className="text-[11px] text-brand-text-dim font-medium">

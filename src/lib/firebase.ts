@@ -3,6 +3,7 @@ import {
   getFirestore,
   collection,
   onSnapshot,
+  getDocs,
   setDoc,
   deleteDoc,
   doc,
@@ -20,6 +21,19 @@ export const db = firebaseConfig.firestoreDatabaseId
   : getFirestore(app);
 
 const PLAYS_COLLECTION = 'plays';
+const SETTINGS_COLLECTION = 'settings';
+const TEAM_ROSTER_DOC = 'team_roster';
+
+/**
+ * Sort plays list by updatedAt descending (newest first).
+ */
+export function sortPlays(plays: Play[]): Play[] {
+  return [...plays].sort((a, b) => {
+    const timeA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+    const timeB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+    return timeB - timeA;
+  });
+}
 
 /**
  * Subscribe to real-time changes in the 'plays' collection.
@@ -32,9 +46,11 @@ export function subscribeToPlays(onUpdate: (plays: Play[]) => void, onError?: (e
       const playsList: Play[] = [];
       snapshot.forEach((docSnap) => {
         const data = docSnap.data() as Play;
-        playsList.push(data);
+        if (data && data.id) {
+          playsList.push(data);
+        }
       });
-      onUpdate(playsList);
+      onUpdate(sortPlays(playsList));
     },
     (error) => {
       console.error('Firestore subscription error:', error);
@@ -44,12 +60,28 @@ export function subscribeToPlays(onUpdate: (plays: Play[]) => void, onError?: (e
 }
 
 /**
+ * Direct fetch of all plays from Firestore (useful for manual refresh).
+ */
+export async function fetchPlaysFromCloud(): Promise<Play[]> {
+  const playsRef = collection(db, PLAYS_COLLECTION);
+  const snapshot = await getDocs(playsRef);
+  const playsList: Play[] = [];
+  snapshot.forEach((docSnap) => {
+    const data = docSnap.data() as Play;
+    if (data && data.id) {
+      playsList.push(data);
+    }
+  });
+  return sortPlays(playsList);
+}
+
+/**
  * Save or update a play in Firestore.
  */
 export async function savePlayToCloud(play: Play): Promise<void> {
   if (!play.id) return;
   const playRef = doc(db, PLAYS_COLLECTION, play.id);
-  const playData = {
+  const playData: Play = {
     ...play,
     updatedAt: new Date().toISOString(),
   };
@@ -74,8 +106,37 @@ export async function syncLocalPlaysToCloud(plays: Play[]): Promise<void> {
   plays.forEach((play) => {
     if (play.id) {
       const playRef = doc(db, PLAYS_COLLECTION, play.id);
-      batch.set(playRef, { ...play, updatedAt: new Date().toISOString() }, { merge: true });
+      batch.set(playRef, { ...play, updatedAt: play.updatedAt || new Date().toISOString() }, { merge: true });
     }
   });
   await batch.commit();
+}
+
+/**
+ * Subscribe to team roster player names real-time sync.
+ */
+export function subscribeToRoster(onUpdate: (roster: Record<string, string>) => void) {
+  const rosterRef = doc(db, SETTINGS_COLLECTION, TEAM_ROSTER_DOC);
+  return onSnapshot(
+    rosterRef,
+    (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data && data.playerNames) {
+          onUpdate(data.playerNames as Record<string, string>);
+        }
+      }
+    },
+    (err) => {
+      console.warn('Roster sync snapshot error:', err);
+    }
+  );
+}
+
+/**
+ * Save team roster player names to Firestore.
+ */
+export async function saveRosterToCloud(playerNames: Record<string, string>): Promise<void> {
+  const rosterRef = doc(db, SETTINGS_COLLECTION, TEAM_ROSTER_DOC);
+  await setDoc(rosterRef, { playerNames, updatedAt: new Date().toISOString() }, { merge: true });
 }

@@ -39,4 +39,5 @@ export interface Play {
   drawings: DrawingPath[]; // drawings per step, or global. Let's keep drawings as an array of step index drawings or simple per-step drawings.
   category?: 'banda' | 'fondo' | 'juego';
   isSaved?: boolean;
+  updatedAt?: string;
 }
